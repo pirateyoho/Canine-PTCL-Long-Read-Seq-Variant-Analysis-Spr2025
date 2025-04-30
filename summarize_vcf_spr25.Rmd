@@ -1,0 +1,562 @@
+---
+title: "Summarize VCF"
+author: "Eileen Owens"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(dev = "png",
+                      dpi = 300,
+                      echo = TRUE,
+                      cache = TRUE,
+                      cache.lazy = FALSE,
+                      warning = FALSE,
+                      message = FALSE,
+                      keep_md = TRUE)
+```
+
+# Software
+```{r}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(knitr)
+library(stringr)
+```
+
+# Data
+```{r}
+## CanFam 3.1
+setwd("C:/Users/edlarsen/Documents/StructuralVariants")
+vcf_Cfam3 <- read.csv("PTCLandCTRL_StructuralVariants_CanFam3.filtered.ann.csv")
+valid_chromosomes <- c(as.character(1:38), "X")
+vcf_Cfam3 <- vcf_Cfam3[vcf_Cfam3$X.CHROM %in% valid_chromosomes, ]
+
+# Exclude any variants only called in controls 
+## define ptcl and ctrl columns
+ptcl_samples <- c("CF215206",	"CF215393",	"CF215422",	"CF215442",	"CF217246") # must correspond to column names in csv file
+ctrl_samples <- c("CF51135",	"CF51406",	"CF53469",	"CF54434")
+
+## Exclude rows where all PTCL samples are "0/0:" (meaning no variant call)
+ptcl_vcf_Cfam3 <- vcf_Cfam3 %>%
+  filter(!if_all(all_of(ptcl_samples), ~ str_starts(.x, fixed("0/0:"))))
+
+## Exclude rows where all PTCL samples are "./.:" (meaning missing data)
+ptcl_vcf_Cfam3 <- ptcl_vcf_Cfam3 %>%
+  filter(!if_all(all_of(ptcl_samples), ~ str_starts(.x, fixed("./.:"))))
+
+## CanFam 4
+vcf_Cfam4 <- read.csv("PTCLandCTRL_StructuralVariants_CanFam4.filtered.ann.csv")
+vcf_Cfam4 <- vcf_Cfam4[vcf_Cfam4$X.CHROM %in% valid_chromosomes, ]
+ptcl_vcf_Cfam4 <- vcf_Cfam4 %>%
+  filter(!if_all(all_of(ptcl_samples), ~ str_starts(.x, fixed("0/0:"))))
+ptcl_vcf_Cfam4 <- ptcl_vcf_Cfam4 %>%
+  filter(!if_all(all_of(ptcl_samples), ~ str_starts(.x, fixed("./.:"))))
+```
+
+# Evaluate overlap of variants called in both PTCL and control samples
+```{r}
+# Include only rows where variants were called in both a PTCL sample and a control sample
+shared_vcf_Cfam3 <- vcf_Cfam3 %>%
+  # Keep rows where at least one PTCL sample has a variant
+  filter(if_any(all_of(ptcl_samples), ~ !(str_starts(.x, fixed("0/0:")) | str_starts(.x, fixed("./.:"))))) %>%
+  # Keep rows where at least one control sample has a variant
+  filter(if_any(all_of(ctrl_samples), ~ !(str_starts(.x, fixed("0/0:")) | str_starts(.x, fixed("./.:")))))
+
+shared_vcf_Cfam4 <- vcf_Cfam4 %>%
+  # Keep rows where at least one PTCL sample has a variant
+  filter(if_any(all_of(ptcl_samples), ~ !(str_starts(.x, fixed("0/0:")) | str_starts(.x, fixed("./.:"))))) %>%
+  # Keep rows where at least one control sample has a variant
+  filter(if_any(all_of(ctrl_samples), ~ !(str_starts(.x, fixed("0/0:")) | str_starts(.x, fixed("./.:")))))
+```
+
+## Number of variants per chromosome
+```{r}
+# CanFam 3.1
+shared_variant_counts_Cfam3 <- table(shared_vcf_Cfam3$X.CHROM)
+shared_variant_df_Cfam3 <- as.data.frame(shared_variant_counts_Cfam3)
+colnames(shared_variant_df_Cfam3) <- c("Chromosome", "VariantCount")
+
+print(ggplot(shared_variant_df_Cfam3, aes(x = Chromosome, y = VariantCount)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  theme_minimal() +
+  labs(
+    title = "Structural variant calls per chromosome for variants called in \nboth PTCLs and controls (CanFam 3.1)",
+    x = "Chromosome",
+    y = "Number of Variants"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), plot.title = element_text(hjust = 0.5)))
+
+# CanFam 4
+shared_variant_counts_Cfam4 <- table(shared_vcf_Cfam4$X.CHROM)
+shared_variant_df_Cfam4 <- as.data.frame(shared_variant_counts_Cfam4)
+colnames(shared_variant_df_Cfam4) <- c("Chromosome", "VariantCount")
+
+print(ggplot(shared_variant_df_Cfam4, aes(x = Chromosome, y = VariantCount)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  theme_minimal() +
+  labs(
+    title = "Structural variant calls per chromosome for variants called in \nboth PTCLs and controls (CanFam4)",
+    x = "Chromosome",
+    y = "Number of Variants"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), plot.title = element_text(hjust = 0.5)))
+```
+
+## Types of variants by chromosome
+```{r}
+## CanFam 3.1
+# Extract the variant type (SVTYPE) from the INFO column
+shared_vcf_Cfam3$SVTYPE <- sapply(shared_vcf_Cfam3$INFO, function(info) {
+  match <- regmatches(info, regexpr("SVTYPE=[^;]+", info))
+  if (length(match) > 0) {
+    sub("SVTYPE=", "", match)
+  } else {
+    NA
+  }
+})
+
+shared_vcf_Cfam3 <- shared_vcf_Cfam3[!is.na(shared_vcf_Cfam3$SVTYPE),] # remove NAs
+
+# Summarize the counts of each variant type per chromosome
+shared_variant_summary_Cfam3 <- shared_vcf_Cfam3 %>%
+  group_by(X.CHROM, SVTYPE) %>%
+  summarise(Count = n()) %>%
+  ungroup()
+
+# Rename chromosome column for better usability in plotting
+colnames(shared_variant_summary_Cfam3)[1] <- "Chromosome"
+
+# Ensure the chromosome column is ordered correctly
+shared_variant_summary_Cfam3$Chromosome <- factor(shared_variant_summary_Cfam3$Chromosome, levels = c(as.character(1:38), "X"))
+
+# Plot the number of variants per chromosome by type
+
+ggplot(shared_variant_summary_Cfam3, aes(x = Chromosome, y = Count, fill = SVTYPE)) +
+  geom_bar(stat = "identity") +
+  theme_minimal() +
+  labs(
+    title = "Structural variant calls per chromosome by type for variants called in \nboth PTCLs and controls (CanFam 3.1)",
+    x = "Chromosome",
+    y = "Number of Variants",
+    fill = "Variant Type"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_brewer(palette = "Set2")
+
+kable(shared_variant_summary_Cfam3, caption = "Variant count per chromosome, shared Samples (CanFam 3.1)")
+
+shared_total_variant_summary_Cfam3 <- shared_vcf_Cfam3 %>%
+  group_by(SVTYPE) %>%
+  summarise(Total_Count = n()) %>%
+  ungroup()
+
+kable(shared_total_variant_summary_Cfam3, caption = "Total variant count by type, shared Samples (CanFam 3.1)")
+
+
+## CanFam4
+# Extract the variant type (SVTYPE) from the INFO column
+shared_vcf_Cfam4$SVTYPE <- sapply(shared_vcf_Cfam4$INFO, function(info) {
+  match <- regmatches(info, regexpr("SVTYPE=[^;]+", info))
+  if (length(match) > 0) {
+    sub("SVTYPE=", "", match)
+  } else {
+    NA
+  }
+})
+
+shared_vcf_Cfam4 <- shared_vcf_Cfam4[!is.na(shared_vcf_Cfam4$SVTYPE),] # remove NAs
+
+# Summarize the counts of each variant type per chromosome
+shared_variant_summary_Cfam4 <- shared_vcf_Cfam4 %>%
+  group_by(X.CHROM, SVTYPE) %>%
+  summarise(Count = n()) %>%
+  ungroup()
+
+# Rename chromosome column for better usability in plotting
+colnames(shared_variant_summary_Cfam4)[1] <- "Chromosome"
+
+# Ensure the chromosome column is ordered correctly
+shared_variant_summary_Cfam4$Chromosome <- factor(shared_variant_summary_Cfam4$Chromosome, levels = c(as.character(1:38), "X"))
+
+# Plot the number of variants per chromosome by type
+
+ggplot(shared_variant_summary_Cfam4, aes(x = Chromosome, y = Count, fill = SVTYPE)) +
+  geom_bar(stat = "identity") +
+  theme_minimal() +
+  labs(
+    title = "Structural variant calls per chromosome by type for variants called in \nboth PTCLs and controls (CanFam4)",
+    x = "Chromosome",
+    y = "Number of Variants",
+    fill = "Variant Type"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_brewer(palette = "Set2")
+
+kable(shared_variant_summary_Cfam4, caption = "Variant count per chromosome, shared Samples (CanFam4)")
+
+shared_total_variant_summary_Cfam4 <- shared_vcf_Cfam4 %>%
+  group_by(SVTYPE) %>%
+  summarise(Total_Count = n()) %>%
+  ungroup()
+
+kable(shared_total_variant_summary_Cfam4, caption = "Total variant count by type, shared Samples (CanFam4)")
+
+```
+
+# Evaluate tumor-specific variants not called in controls
+```{r}
+# Exclude rows where ANY control sample has a variant (i.e., not 0/0: or ./.:)
+ptcl_only_vcf_Cfam3 <- ptcl_vcf_Cfam3 %>%
+  filter(if_all(all_of(ctrl_samples), ~ str_starts(.x, fixed("0/0:")) | str_starts(.x, fixed("./.:"))))
+
+ptcl_only_vcf_Cfam4 <- ptcl_vcf_Cfam4 %>%
+  filter(if_all(all_of(ctrl_samples), ~ str_starts(.x, fixed("0/0:")) | str_starts(.x, fixed("./.:"))))
+```
+
+## Number of variants per chromosome
+```{r}
+# CanFam 3.1
+ptcl_only_variant_counts_Cfam3 <- table(ptcl_only_vcf_Cfam3$X.CHROM)
+ptcl_only_variant_df_Cfam3 <- as.data.frame(ptcl_only_variant_counts_Cfam3)
+colnames(ptcl_only_variant_df_Cfam3) <- c("Chromosome", "VariantCount")
+
+print(ggplot(ptcl_only_variant_df_Cfam3, aes(x = Chromosome, y = VariantCount)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  theme_minimal() +
+  labs(
+    title = "Structural variant calls per chromosome, PTCL-specific variants (CanFam 3.1)",
+    x = "Chromosome",
+    y = "Number of Variants"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)))
+
+# CanFam 4
+ptcl_only_variant_counts_Cfam4 <- table(ptcl_only_vcf_Cfam4$X.CHROM)
+ptcl_only_variant_df_Cfam4 <- as.data.frame(ptcl_only_variant_counts_Cfam4)
+colnames(ptcl_only_variant_df_Cfam4) <- c("Chromosome", "VariantCount")
+
+print(ggplot(ptcl_only_variant_df_Cfam4, aes(x = Chromosome, y = VariantCount)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  theme_minimal() +
+  labs(
+    title = "Structural variant calls per chromosome, PTCL-specific variants (CanFam4)",
+    x = "Chromosome",
+    y = "Number of Variants"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)))
+```
+
+# Types of variants by chromosome
+```{r}
+## CanFam 3.1
+# Extract the variant type (SVTYPE) from the INFO column
+ptcl_only_vcf_Cfam3$SVTYPE <- sapply(ptcl_only_vcf_Cfam3$INFO, function(info) {
+  match <- regmatches(info, regexpr("SVTYPE=[^;]+", info))
+  if (length(match) > 0) {
+    sub("SVTYPE=", "", match)
+  } else {
+    NA
+  }
+})
+
+ptcl_only_vcf_Cfam3 <- ptcl_only_vcf_Cfam3[!is.na(ptcl_only_vcf_Cfam3$SVTYPE),] # remove NAs
+
+# Summarize the counts of each variant type per chromosome
+ptcl_only_variant_summary_Cfam3 <- ptcl_only_vcf_Cfam3 %>%
+  group_by(X.CHROM, SVTYPE) %>%
+  summarise(Count = n()) %>%
+  ungroup()
+
+# Rename chromosome column for better usability in plotting
+colnames(ptcl_only_variant_summary_Cfam3)[1] <- "Chromosome"
+
+# Ensure the chromosome column is ordered correctly
+ptcl_only_variant_summary_Cfam3$Chromosome <- factor(ptcl_only_variant_summary_Cfam3$Chromosome, levels = c(as.character(1:38), "X"))
+
+# Plot the number of variants per chromosome by type
+ggplot(ptcl_only_variant_summary_Cfam3, aes(x = Chromosome, y = Count, fill = SVTYPE)) +
+  geom_bar(stat = "identity") +
+  theme_minimal() +
+  labs(
+    title = "Structural variants per chromosome by type, PTCL-specific variants (CanFam 3.1)",
+    x = "Chromosome",
+    y = "Number of Variants",
+    fill = "Variant Type"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_brewer(palette = "Set2")
+
+kable(ptcl_only_variant_summary_Cfam3, caption = "Variant count per chromosome, PTCL-specific variants (CanFam 3.1)")
+
+ptcl_only_total_variant_summary_Cfam3 <- ptcl_only_vcf_Cfam3 %>%
+  group_by(SVTYPE) %>%
+  summarise(Total_Count = n()) %>%
+  ungroup()
+
+kable(ptcl_only_total_variant_summary_Cfam3, caption = "Total variant count by type, PTCL-specific variants (CanFam 3.1)")
+```
+
+```{r}
+## CanFam4
+# Extract the variant type (SVTYPE) from the INFO column
+ptcl_only_vcf_Cfam4$SVTYPE <- sapply(ptcl_only_vcf_Cfam4$INFO, function(info) {
+  match <- regmatches(info, regexpr("SVTYPE=[^;]+", info))
+  if (length(match) > 0) {
+    sub("SVTYPE=", "", match)
+  } else {
+    NA
+  }
+})
+
+ptcl_only_vcf_Cfam4 <- ptcl_only_vcf_Cfam4[!is.na(ptcl_only_vcf_Cfam4$SVTYPE),] # remove NAs
+
+# Summarize the counts of each variant type per chromosome
+ptcl_only_variant_summary_Cfam4 <- ptcl_only_vcf_Cfam4 %>%
+  group_by(X.CHROM, SVTYPE) %>%
+  summarise(Count = n()) %>%
+  ungroup()
+
+# Rename chromosome column for better usability in plotting
+colnames(ptcl_only_variant_summary_Cfam4)[1] <- "Chromosome"
+
+# Ensure the chromosome column is ordered correctly
+ptcl_only_variant_summary_Cfam4$Chromosome <- factor(ptcl_only_variant_summary_Cfam4$Chromosome, levels = c(as.character(1:38), "X"))
+
+# Plot the number of variants per chromosome by type
+ggplot(ptcl_only_variant_summary_Cfam4, aes(x = Chromosome, y = Count, fill = SVTYPE)) +
+  geom_bar(stat = "identity") +
+  theme_minimal() +
+  labs(
+    title = "Structural variants per chromosome by type, PTCL-specific variants (CanFam4)",
+    x = "Chromosome",
+    y = "Number of Variants",
+    fill = "Variant Type"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_brewer(palette = "Set2")
+
+kable(ptcl_only_variant_summary_Cfam4, caption = "Variant count per chromosome, PTCL-specific variants (CanFam4)")
+ptcl_only_total_variant_summary_Cfam4 <- ptcl_only_vcf_Cfam4 %>%
+  group_by(SVTYPE) %>%
+  summarise(Total_Count = n()) %>%
+  ungroup()
+
+kable(ptcl_only_total_variant_summary_Cfam4, caption = "Total variant count by type, PTCL-specific variants (CanFam4)")
+```
+
+# Identify shared fusion partners with RNA-seq data 
+```{r}
+## CanFam 3.1
+# read in csv file(s) of RNA fusion calls
+star_rna_fusions <- read.csv("CanFam31_StarFusionSummary.csv")
+fc_rna_fusions <- read.csv("fusionCatcher-results-ptcl-no-ctrls.csv")
+
+# get list of implicated genes
+star_genes_3 <- star_rna_fusions$X3_prime_gene
+star_genes_5 <- star_rna_fusions$X5_prime_gene
+fc_genes_3 <- fc_rna_fusions$X3_prime_gene
+fc_genes_5 <- fc_rna_fusions$X5_prime_gene
+
+all_star_genes <- c(star_genes_3, star_genes_5)
+all_star_genes <- unique(all_star_genes)
+all_fc_genes <- c(fc_genes_3, fc_genes_5)
+all_fc_genes <- unique(all_fc_genes)
+
+# compare to genes in INFO column of BND variant file
+bnd_vcf <- read.csv("PTCLandCTRL_BND_Variants.CanFam3.filtered.ann.bcsq.csv")
+
+extract_gene <- function(info) {
+  # Find the BCSQ field
+  bcsc_field <- stringr::str_extract(info, "BCSQ=[^;]+")
+  # Extract the gene name (second element after "|")
+  if (!is.na(bcsc_field)) {
+    gene <- strsplit(bcsc_field, "\\|")[[1]][2]
+    return(gene)
+  }
+  return(NA)
+}
+
+bnd_vcf <- bnd_vcf %>%
+  mutate(Gene = sapply(INFO, extract_gene))
+
+shared_star_bnd_Cfam3 <- bnd_vcf %>%
+  filter(Gene %in% all_star_genes)
+
+shared_fc_bnd_Cfam3 <- bnd_vcf %>%
+  filter(Gene %in% all_fc_genes)
+
+# print summary
+print(unique(shared_star_bnd_Cfam3$Gene))
+print(unique(shared_fc_bnd_Cfam3$Gene))
+
+# export
+write.csv(shared_star_bnd_Cfam3, file = "Spr25_shared_PacBio_STARFusion_calls.CanFam3.csv")
+write.csv(shared_fc_bnd_Cfam3, file = "Spr25_shared_PacBio_FusionCatcher_calls.CanFam3.csv")
+```
+
+```{r}
+## CanFam4
+# read in csv file of RNA fusion calls
+star_rna_fusions <- read.csv("CanFam4_StarFusionSummary.csv")
+
+# get list of implicated genes
+genes_3 <- star_rna_fusions$X3_prime_gene
+genes_5 <- star_rna_fusions$X5_prime_gene
+all_genes <- c(genes_3, genes_5)
+all_genes <- unique(all_genes)
+
+# compare to genes in INFO column of BND variant file
+bnd_vcf <- read.csv("PTCLandCTRL_BND_Variants.CanFam4.filtered.ann.bcsq.csv")
+
+extract_gene <- function(info) {
+  # Find the BCSQ field
+  bcsc_field <- stringr::str_extract(info, "BCSQ=[^;]+")
+  # Extract the gene name (second element after "|")
+  if (!is.na(bcsc_field)) {
+    gene <- strsplit(bcsc_field, "\\|")[[1]][2]
+    return(gene)
+  }
+  return(NA)
+}
+
+bnd_vcf <- bnd_vcf %>%
+  mutate(Gene = sapply(INFO, extract_gene))
+
+shared_bnd_Cfam4 <- bnd_vcf %>%
+  filter(Gene %in% all_genes)
+
+# print summary
+print(unique(shared_bnd_Cfam4$Gene))
+
+# export
+write.csv(shared_bnd_Cfam4, file = "Spr25_shared_PacBio_STARFusion_calls.CanFam4.csv")
+```
+
+# Identify structural variants implicating cancer-associated genes
+```{r}
+
+# list of cancer-associated genes from OncoKB
+oncokb <- read.csv("cancerGeneList.csv")
+oncokb_genes <- oncokb$Hugo.Symbol
+
+extract_gene <- function(info) {
+  # Find the BCSQ field
+  bcsc_field <- stringr::str_extract(info, "BCSQ=[^;]+")
+  # Extract the gene name (second element after "|")
+  if (!is.na(bcsc_field)) {
+    gene <- strsplit(bcsc_field, "\\|")[[1]][2]
+    return(gene)
+  }
+  return(NA)
+}
+
+# Use the vcf objects of PTCL-specific variants
+onco_vcf_Cfam3 <- ptcl_only_vcf_Cfam3 %>%
+  mutate(Gene = sapply(INFO, extract_gene))
+
+onco_vcf_Cfam3 <- onco_vcf_Cfam3 %>%
+  filter(Gene %in% oncokb_genes)
+
+onco_vcf_Cfam4 <- ptcl_only_vcf_Cfam4 %>%
+  mutate(Gene = sapply(INFO, extract_gene))
+
+onco_vcf_Cfam4 <- onco_vcf_Cfam4 %>%
+  filter(Gene %in% oncokb_genes)
+
+# export
+write.csv(onco_vcf_Cfam3, file = "Spr25_CanFam3_PTCL_SVs_in_Cancer_Genes.csv")
+write.csv(onco_vcf_Cfam4, file = "Spr25_CanFam4_PTCL_SVs_in_Cancer_Genes.csv")
+```
+
+# Identify shared variable genes between CanFam3.1 and CanFam4 alignments
+```{r}
+# Extract BCSQ gene annotation and SVTYPE from INFO field and place in separate columns called 'Gene' and 'SVTYPE'
+extract_gene <- function(info) {
+  # Find the BCSQ field
+  bcsc_field <- stringr::str_extract(info, "BCSQ=[^;]+")
+  # Extract the gene name (second element after "|")
+  if (!is.na(bcsc_field)) {
+    gene <- strsplit(bcsc_field, "\\|")[[1]][2]
+    return(gene)
+  }
+  return(NA)
+}
+
+extract_variant_type <- function(info) {
+  # Find the SVTYPE field
+  svtype_field <- stringr::str_extract(info, "SVTYPE=[^;]+")
+  # Extract the variant type (first element after "=")
+  if (!is.na(svtype_field)) {
+    var_type <- strsplit(svtype_field, "=")[[1]][2]
+    return(var_type)
+  }
+  return(NA)
+}
+
+
+# Use the vcf objects of PTCL-specific variants
+Cfam3_vcf_alt <- ptcl_only_vcf_Cfam3 %>%
+  mutate(Gene = sapply(INFO, extract_gene))
+Cfam3_vcf_alt <- Cfam3_vcf_alt %>%
+  mutate(SVTYPE = sapply(INFO, extract_variant_type))
+
+Cfam4_vcf_alt <- ptcl_only_vcf_Cfam4 %>%
+  mutate(Gene = sapply(INFO, extract_gene))
+Cfam4_vcf_alt <- Cfam4_vcf_alt %>%
+  mutate(SVTYPE = sapply(INFO, extract_variant_type))
+
+# Combine Gene and SVTYPE info into one column
+Cfam3_vcf_alt <- Cfam3_vcf_alt %>%
+  mutate(
+    SVTYPE_Gene = paste(SVTYPE, Gene, sep = "_")
+  )
+
+Cfam4_vcf_alt <- Cfam4_vcf_alt %>%
+  mutate(
+    SVTYPE_Gene = paste(SVTYPE, Gene, sep = "_")
+  )
+
+
+# Create vector of SVTYPE_Gene column contents
+Cfam3_variantGenes <- unique(Cfam3_vcf_alt$SVTYPE_Gene)
+Cfam4_variantGenes <- unique(Cfam4_vcf_alt$SVTYPE_Gene)
+
+# Filter variant calls of each alignment to include only those of the same variant type in shared genes
+Cfam3_shared <- Cfam3_vcf_alt %>%
+  filter(SVTYPE_Gene %in% Cfam4_variantGenes) %>%
+  filter(Gene != "NA")
+
+Cfam4_shared <- Cfam4_vcf_alt %>%
+  filter(SVTYPE_Gene %in% Cfam3_variantGenes) %>%
+  filter(Gene != "NA")
+
+# print summary of total number of shared variable genes
+paste("Number of genes with the same variant type called in CanFam3.1 and CanFam4: ", length(unique(Cfam3_shared$Gene)), sep = " ")
+
+# export
+write.csv(Cfam3_shared, file = "Spr25_CanFam3_PacBio_PTCL_Variants_in_Shared_Genes_with_CanFam4.csv")
+write.csv(Cfam4_shared, file = "Spr25_CanFam4_PacBio_PTCL_Variants_in_Shared_Genes_with_CanFam3.csv")
+
+# Limit to OncoKB cancer-associated genes
+Cfam3_shared_oncokb <- Cfam3_shared %>%
+  filter(Gene %in% oncokb_genes)
+
+Cfam4_shared_oncokb <- Cfam4_shared %>%
+  filter(Gene %in% oncokb_genes)
+
+paste("Number of cancer-associated genes with same variant type called in CanFam3.1 and CanFam4:", length(unique(Cfam3_shared_oncokb$Gene)), sep = " ")
+
+# export
+write.csv(Cfam3_shared_oncokb, file = "Spr25_CanFam3_PacBio_PTCL_Variants_in_Shared_OncoKB_Genes_with_CanFam4.csv")
+write.csv(Cfam4_shared_oncokb, file = "Spr25_CanFam4_PacBio_PTCL_Variants_in_Shared_OncoKB_Genes_with_CanFam3.csv")
+```
+
+# Citations
+```{r citations}
+sessionInfo()
+citation()
+```
+
+
