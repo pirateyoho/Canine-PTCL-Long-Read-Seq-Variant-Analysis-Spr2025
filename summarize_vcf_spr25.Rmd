@@ -142,7 +142,7 @@ ggplot(shared_variant_summary_Cfam3, aes(x = Chromosome, y = Count, fill = SVTYP
     y = "Number of Variants",
     fill = "Variant Type"
   ) +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), plot.title = element_text(hjust = 0.5)) +
   scale_fill_brewer(palette = "Set2")
 
 kable(shared_variant_summary_Cfam3, caption = "Variant count per chromosome, shared Samples (CanFam 3.1)")
@@ -191,7 +191,7 @@ ggplot(shared_variant_summary_Cfam4, aes(x = Chromosome, y = Count, fill = SVTYP
     y = "Number of Variants",
     fill = "Variant Type"
   ) +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), plot.title = element_text(hjust = 0.5)) +
   scale_fill_brewer(palette = "Set2")
 
 kable(shared_variant_summary_Cfam4, caption = "Variant count per chromosome, shared Samples (CanFam4)")
@@ -280,12 +280,12 @@ ggplot(ptcl_only_variant_summary_Cfam3, aes(x = Chromosome, y = Count, fill = SV
   geom_bar(stat = "identity") +
   theme_minimal() +
   labs(
-    title = "Structural variants per chromosome by type, PTCL-specific variants (CanFam 3.1)",
+    title = "Structural variants per chromosome by type,\nPTCL-specific variants (CanFam 3.1)",
     x = "Chromosome",
     y = "Number of Variants",
     fill = "Variant Type"
   ) +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), plot.title = element_text(hjust = 0.5)) +
   scale_fill_brewer(palette = "Set2")
 
 kable(ptcl_only_variant_summary_Cfam3, caption = "Variant count per chromosome, PTCL-specific variants (CanFam 3.1)")
@@ -329,12 +329,12 @@ ggplot(ptcl_only_variant_summary_Cfam4, aes(x = Chromosome, y = Count, fill = SV
   geom_bar(stat = "identity") +
   theme_minimal() +
   labs(
-    title = "Structural variants per chromosome by type, PTCL-specific variants (CanFam4)",
+    title = "Structural variants per chromosome by type,\nPTCL-specific variants (CanFam4)",
     x = "Chromosome",
     y = "Number of Variants",
     fill = "Variant Type"
   ) +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), plot.title = element_text(hjust = 0.5)) +
   scale_fill_brewer(palette = "Set2")
 
 kable(ptcl_only_variant_summary_Cfam4, caption = "Variant count per chromosome, PTCL-specific variants (CanFam4)")
@@ -558,5 +558,3 @@ write.csv(Cfam4_shared_oncokb, file = "Spr25_CanFam4_PacBio_PTCL_Variants_in_Sha
 sessionInfo()
 citation()
 ```
-
-
